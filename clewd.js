@@ -234,7 +234,8 @@ const updateParams = res => {
             method: 'DELETE'
         });
         updateParams(res);
-    } catch (err) {console.log(`[33mdeleteChat failed[0m`)}; //
+        await checkResErr(res); //
+    } catch (err) {console.log('[33mdeleteChat failed[0m\n%o', err)}; //
 }, onListen = async () => {
 /***************************** */
     if (Firstlogin) {
@@ -422,13 +423,13 @@ const updateParams = res => {
                 try {
                     const body = JSON.parse(Buffer.concat(buffer).toString());
                     let {temperature} = body;
-                    temperature = Math.max(.1, Math.min(1, temperature));
+                    temperature = typeof temperature === 'number' ? Math.max(.1, Math.min(1, temperature)) : undefined; //temperature = Math.max(.1, Math.min(1, temperature));
                     let {messages} = body;
 /************************* */
                     const thirdKey = req.headers.authorization?.match(/(?<=3rdKey:).*/);
                     apiKey = thirdKey?.map(item => item.trim())[0].split(/ ?, ?/) || req.headers.authorization?.match(/sk-ant-api\d\d-[\w-]{86}-[\w-]{6}AA/g);
                     model = apiKey || Config.Settings.PassParams && /claude-(?!default)/.test(body.model) || isPro && AI.mdl().includes(body.model) ? body.model : cookieModel;
-                    let max_tokens_to_sample = body.max_tokens, stop_sequences = body.stop || [], top_p = body.top_p, top_k = body.top_k;
+                    let max_tokens_to_sample = body.max_tokens, stop_sequences = body.stop || [], top_p = typeof body.top_p === 'number' ? body.top_p : undefined, top_k = typeof body.top_k === 'number' ? body.top_k : undefined;
                     if (!apiKey && Config.ProxyPassword != '' && req.headers.authorization != 'Bearer ' + Config.ProxyPassword) {
                         throw Error('ProxyPassword Wrong');
                     } else if (!changing && !apiKey && (!Config.Settings.PassParams && !isPro && model != cookieModel || invalidtime > Config.CookieArray?.length)) {
@@ -662,7 +663,7 @@ const updateParams = res => {
                     apiKey && messagesAPI && (type = 'msg_api');
                     prompt = Config.Settings.xmlPlot ? xmlPlot(prompt, !/claude-(2\.[1-9]|[3-9])/.test(model)) : apiKey ? `\n\nHuman: ${genericFixes(prompt)}\n\nAssistant:` : genericFixes(prompt).trim();
                     if (Config.Settings.FullColon) if (/claude-(2\.(1-|[2-9])|[3-9])/.test(model)) {
-                        stop_sequences.push('\n\r\nHuman:', '\n\r\nAssistant:');
+                        stop_sequences.push('\n\nHuman:', '\n\nAssistant:', '\n\r\nHuman:', '\n\r\nAssistant:');
                         prompt = apiKey ? prompt.replace(/(?<!\n\nHuman:.*)\n\n(Assistant:)/gs, '\n\r\n$1').replace(/\n\n(Human:)(?!.*\n\nAssistant:)/gs, '\n\r\n$1') : prompt.replace(/\n\n(Human|Assistant):/g, '\n\r\n$1:');
                     } else prompt = apiKey ? prompt.replace(/(?<!\n\nHuman:.*)(\n\nAssistant):/gs, '$1：').replace(/(\n\nHuman):(?!.*\n\nAssistant:)/gs, '$1：') : prompt.replace(/\n\n(Human|Assistant):/g, '\n\n$1：');
                     prompt = padtxt(prompt);
