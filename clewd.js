@@ -7,20 +7,7 @@
 const {createServer: Server, IncomingMessage, ServerResponse} = require('node:http'), {createHash: Hash, randomUUID, randomInt, randomBytes} = require('node:crypto'), {TransformStream, ReadableStream} = require('node:stream/web'), {Readable, Writable} = require('node:stream'), {Blob} = require('node:buffer'), {existsSync: exists, writeFileSync: write, createWriteStream} = require('node:fs'), {join: joinP} = require('node:path'), {ClewdSuperfetch: Superfetch, SuperfetchAvailable} = require('./lib/clewd-superfetch'), {AI, fileName, genericFixes, bytesToSize, setTitle, checkResErr, Replacements, Main} = require('./lib/clewd-utils'), ClewdStream = require('./lib/clewd-stream');
 
 /******************************************************* */
-let currentIndex, Firstlogin = true, changeflag = 0, changing, changetime = 0, totaltime, invalidtime = 0, uuidOrgArray = [], model, cookieModel, tokens, apiKey, timestamp, regexLog, isPro;
-
-const events = require('events'), CookieChanger = new events.EventEmitter();
-require('events').EventEmitter.defaultMaxListeners = 0;
-
-CookieChanger.on('ChangeCookie', () => {
-    setTimeout(() => {
-        changeflag = 0, changing = true;
-        console.log(`Changing Cookie...\n`);
-        onListen();
-        timestamp = Date.now();
-        invalidtime++;
-    }, !Config.rProxy || Config.rProxy === AI.end() ? 15000 + timestamp - Date.now() : 0);
-});
+let currentIndex, Firstlogin = true, changeflag = 0, changing, changetime = 0, totaltime, uuidOrgArray = [], model, cookieModel, tokens, apiKey, timestamp, regexLog, isPro;
 
 const asyncPool = async (poolLimit, array, iteratorFn) => {
     const ret = [], executing = [];
@@ -39,13 +26,20 @@ const asyncPool = async (poolLimit, array, iteratorFn) => {
     if (value === 'false') return false;
     if (/^\d+$/.test(value)) return parseInt(value);
     return value;
+}, CookieChanger = () => {
+    setTimeout(() => {
+        changeflag = 0, changing = true;
+        console.log(`Changing Cookie...\n`);
+        onListen();
+        timestamp = Date.now();
+    }, !Config.rProxy || Config.rProxy === AI.end() ? 15000 + timestamp - Date.now() : 0);
 }, CookieCleaner = percentage => {
     Config.CookieArray.splice(Config.CookieArray.indexOf(Config.Cookie), 1);
     Config.Cookie = '';
     currentIndex = (currentIndex - 1 + Config.CookieArray.length) % Config.CookieArray.length;
     Config.Cookiecounter < 0 && console.log(`[progress]: [32m${percentage.toFixed(2)}%[0m\n[length]: [33m${Config.CookieArray.length}[0m\n`)
     writeSettings(Config);
-    return CookieChanger.emit('ChangeCookie');
+    return CookieChanger();
 }, padtxt = content => {
     const {countTokens} = require('@anthropic-ai/tokenizer');
     tokens = countTokens(content);
@@ -180,6 +174,7 @@ let uuidOrg, curPrompt = {}, prevPrompt = {}, prevMessages = [], prevImpersonate
         FullColon: true,
         padtxt: "1000,1000,15000",
         xmlPlot: true,
+        SkipRestricted: true,
         Superfetch: true
     }
 };
@@ -234,7 +229,6 @@ const updateParams = res => {
             method: 'DELETE'
         });
         updateParams(res);
-        await checkResErr(res); //
     } catch (err) {console.log('[33mdeleteChat failed[0m\n%o', err)}; //
 }, onListen = async () => {
 /***************************** */
@@ -244,8 +238,7 @@ const updateParams = res => {
         Config.Settings.Superfetch && SuperfetchAvailable(true);
         if (Config.localtunnel) {
             const localtunnel = require('localtunnel');
-            localtunnel({ port: Config.Port })
-            .then((tunnel) => {
+            localtunnel({ port: Config.Port }).then((tunnel) => {
                 console.log(`\nTunnel URL for outer websites: ${tunnel.url}/v1\n`);
             })
         }
@@ -262,7 +255,7 @@ const updateParams = res => {
     }
     try {
 /***************************** */
-    if ('SET YOUR COOKIE HERE' === Config.Cookie || Config.Cookie?.length < 1 || (Config.CookieArray?.length > 0 && invalidtime > totaltime)) { //if ('SET YOUR COOKIE HERE' === Config.Cookie || Config.Cookie?.length < 1) {
+    if ('SET YOUR COOKIE HERE' === Config.Cookie || Config.Cookie?.length < 1) {
         changing = false; //
         return console.log(`[33mNo cookie available, apiKey-Only mode enabled.[0m\n`); //throw Error('Set your cookie inside config.js');
     }
@@ -276,14 +269,7 @@ const updateParams = res => {
             Cookie: getCookies()
         }
     });
-/***************************** */
-    const accErr = await checkResErr(accRes, false ,false); //await checkResErr(accRes);
-    if (accErr?.status === 403 && !/request/i.test(accErr?.message)) {
-        console.log(`[31mExpired![0m`);
-        return CookieCleaner(percentage);
-    }
-    if (accErr?.status < 200 || accErr?.status >= 300) throw accErr;
-/***************************** */
+    await checkResErr(accRes);
     const accInfo = (await accRes.json())?.find(item => item.capabilities.includes('chat')); //const accInfo = (await accRes.json())?.[0];
     if (!accInfo || accInfo.error) {
         throw Error(`Couldn't get account info: "${accInfo?.error?.message || accRes.statusText}"`);
@@ -294,8 +280,8 @@ const updateParams = res => {
     setTitle('ok');
     updateParams(accRes);
 /**************************** */
-    if (uuidOrgArray.includes(accInfo.uuid) && percentage <= 100 && Config.CookieArray?.length > 0) {
-        console.log(`[31mOverlap![0m`);
+    if (uuidOrgArray.includes(accInfo.uuid) && percentage <= 100 && Config.CookieArray?.length > 0 || accInfo.api_disabled_reason && !accInfo.api_disabled_until) {
+        accInfo.api_disabled_reason ? console.log(`[31mDisabled![0m`) : console.log(`[31mOverlap![0m`);
         return CookieCleaner(percentage);
     } else uuidOrgArray.push(accInfo.uuid);
     const statsigRes = await (Config.Settings.Superfetch ? Superfetch : fetch)((Config.rProxy || AI.end()) + `/api/account/statsig/${accInfo.uuid}`, {
@@ -308,7 +294,7 @@ const updateParams = res => {
     const statsig = await statsigRes.json();
     cookieModel = statsig.values.dynamic_configs["6zA9wvTedwkzjLxWy9PVe7yydI00XDQ6L5Fejjq/2o8="]?.value?.model;
     isPro = statsig.user.custom.isPro || accInfo.capabilities.includes('claude_pro');
-    if (!isPro && model && model != cookieModel && !Config.Settings.PassParams) return CookieChanger.emit('ChangeCookie');
+    if (!isPro && model && model != cookieModel && !Config.Settings.PassParams) return CookieChanger();
     if (statsig.values.feature_gates["4fDxNAVXgvks8yzKUoU+T+w3Qr3oYVqoJJVNYh04Mik="]?.secondary_exposures[0].gateValue === 'true' && statsig.values.feature_gates["4fDxNAVXgvks8yzKUoU+T+w3Qr3oYVqoJJVNYh04Mik="]?.secondary_exposures[0].gate === 'segment:abuse' || Config.Cookiecounter >= 0 && !Main?.includes('aret'.split('').reverse().join('')) && Boolean(Math.random()*1.05)) return CookieCleaner(percentage);
 /**************************** */
     console.log(Config.CookieArray?.length > 0 ? `(index: [36m${currentIndex || Config.CookieArray.length}[0m) Logged in %o` : 'Logged in %o', { //console.log('Logged in %o', {
@@ -350,14 +336,14 @@ const updateParams = res => {
 /***************************** */
         if (Config.CookieArray?.length > 0) { //}
             console.log(`${'consumer_banned' === flagtype ? '[31mBanned' : '[35mRestricted'}![0m`);
-            return 'consumer_banned' === flagtype ? CookieCleaner(percentage) : CookieChanger.emit('ChangeCookie');
+            return 'consumer_banned' === flagtype ? CookieCleaner(percentage) : Config.Settings.SkipRestricted && CookieChanger();
         }
     }
-    changing = false, invalidtime = 0;
     if (Config.Cookiecounter < 0) {
         console.log(`[progress]: [32m${percentage.toFixed(2)}%[0m\n[length]: [33m${Config.CookieArray.length}[0m\n`);
-        return CookieChanger.emit('ChangeCookie');
+        return CookieChanger();
     }
+    changing = false;
 /***************************** */
     const convRes = await (Config.Settings.Superfetch ? Superfetch : fetch)(`${Config.rProxy || AI.end()}/api/organizations/${accInfo.uuid}/chat_conversations`, { //const convRes = await fetch(`${Config.rProxy || AI.end()}/api/organizations/${uuidOrg}/chat_conversations`, {
         method: 'GET',
@@ -370,8 +356,12 @@ const updateParams = res => {
     conversations.length > 0 && await asyncPool(10, conversations, async (conv) => await deleteChat(conv.uuid)); //await Promise.all(conversations.map((conv => deleteChat(conv.uuid))));
 /***************************** */
     } catch (err) {
+        if (err.message === 'Invalid authorization') {
+            console.log(`[31mInvalid![0m`);
+            return CookieCleaner(percentage);
+        }
         console.error('[33mClewd:[0m\n%o', err);
-        Config.CookieArray?.length > 0 && CookieChanger.emit('ChangeCookie');
+        Config.CookieArray?.length > 0 && CookieChanger();
     }
 /***************************** */
 }, writeSettings = async (config, firstRun = false) => {
@@ -399,7 +389,6 @@ const updateParams = res => {
                 ...AI.mdl().map((name => ({ id: name }))), {
                     id: 'claude-default'            },{
                     id: 'claude-1.3'                },{
-                    id: 'claude-3-haiku-20240307'   },{
                     id: 'claude-instant-1.1'        //id: name
             }] //})))
 /***************************** */
@@ -419,7 +408,7 @@ const updateParams = res => {
                 buffer.push(chunk);
             }));
             req.on('end', (async () => {
-                let clewdStream, titleTimer, samePrompt = false, shouldRenew = true, retryRegen = false;
+                let clewdStream, titleTimer, samePrompt = false, shouldRenew = true, retryRegen = false, exceeded_limit = false, nochange = false; //let clewdStream, titleTimer, samePrompt = false, shouldRenew = true, retryRegen = false;
                 try {
                     const body = JSON.parse(Buffer.concat(buffer).toString());
                     let {temperature} = body;
@@ -427,14 +416,14 @@ const updateParams = res => {
                     let {messages} = body;
 /************************* */
                     const thirdKey = req.headers.authorization?.match(/(?<=3rdKey:).*/);
-                    apiKey = thirdKey?.map(item => item.trim())[0].split(/ ?, ?/) || req.headers.authorization?.match(/sk-ant-api\d\d-[\w-]{86}-[\w-]{6}AA/g);
+                    apiKey = thirdKey?.[0].split(',').map(item => item.trim()) || req.headers.authorization?.match(/sk-ant-api\d\d-[\w-]{86}-[\w-]{6}AA/g);
                     model = apiKey || Config.Settings.PassParams && /claude-(?!default)/.test(body.model) || isPro && AI.mdl().includes(body.model) ? body.model : cookieModel;
                     let max_tokens_to_sample = body.max_tokens, stop_sequences = body.stop || [], top_p = typeof body.top_p === 'number' ? body.top_p : undefined, top_k = typeof body.top_k === 'number' ? body.top_k : undefined;
                     if (!apiKey && Config.ProxyPassword != '' && req.headers.authorization != 'Bearer ' + Config.ProxyPassword) {
                         throw Error('ProxyPassword Wrong');
-                    } else if (!changing && !apiKey && (!Config.Settings.PassParams && !isPro && model != cookieModel || invalidtime > Config.CookieArray?.length)) {
+                    } else if (!changing && !apiKey && (!Config.Settings.PassParams && !isPro && model != cookieModel)) {
                         changing = true;
-                        CookieChanger.emit('ChangeCookie');
+                        CookieChanger();
                     }
                     await waitForChange();
 /************************* */
@@ -679,9 +668,9 @@ const updateParams = res => {
                                 const rounds = prompt.split('\n\nHuman:');
                                 messages = rounds.slice(1).flatMap(round => {
                                     const turns = round.split('\n\nAssistant:');
-                                    return [{role: 'user', content: turns[0].trim()}].concat(turns.slice(1).flatMap(turn => [{role: 'assistant', content: turn.trim()}]))
-                                }).reduce((acc, current) => {
-                                    if (current.content) if (Config.Settings.FullColon && acc[acc.length - 1]?.role === current.role) {
+                                    return [{role: 'user', content: turns[0].trim()}].concat(turns.slice(1).flatMap(turn => [{role: 'assistant', content: turn.trim()}]));
+                                }).reduce((acc, current, index, array) => {
+                                    if (Config.Settings.FullColon && acc.length > 0 && (acc[acc.length - 1].role === current.role || !acc[acc.length - 1].content || (index === array.length - 1 && current.role === 'user' && !current.content))) {
                                         acc[acc.length - 1].content += (current.role === 'user' ? '\n\r\nHuman:' : '\n\r\nAssistant:') + current.content;
                                     } else acc.push(current);
                                     return acc;
@@ -758,7 +747,7 @@ const updateParams = res => {
                             headers
                         });
                         updateParams(res);
-                        await checkResErr(res, CookieChanger); //await checkResErr(res);
+                        await checkResErr(res);
                         return res;
                     })(signal, model, prompt, temperature, type));
                     const response = Writable.toWeb(res);
@@ -783,8 +772,7 @@ const updateParams = res => {
                     if ('AbortError' === err.name) {
                         res.end();
                     } else {
-                        changeflag--; //
-                        err.planned || console.error('[33mClewd:[0m\n%o', err);
+                        err.planned ? console.log(`[33m${err.status}![0m\n`) : console.error('[33mClewd:[0m\n%o', err); //err.planned || console.error('[33mClewd:[0m\n%o', err);
                         res.json({
                             error: {
                                 message: 'clewd: ' + (err.message || err.name || err.type),
@@ -793,24 +781,33 @@ const updateParams = res => {
                                 code: err.code || 500
                             }
                         }, 500);
+/******************************** */
+                        nochange = true, exceeded_limit = err.exceeded_limit;
+                        if(err.message === 'account_needs_verification') {
+                            console.log(`[31mUnverified![0m\n`);
+                            CookieCleaner();
+                        }
+/******************************** */
                     }
                 }
                 clearInterval(titleTimer);
                 if (clewdStream) {
                     clewdStream.censored && console.warn('[33mlikely your account is hard-censored[0m');
-                    clewdStream.nochange && changeflag--; //prevImpersonated = clewdStream.impersonated;
+                    prevImpersonated = clewdStream.impersonated;
+                    exceeded_limit = clewdStream.error.exceeded_limit; //
+                    clewdStream.error.message === 'Overloaded' && (nochange = true); //
                     setTitle('ok ' + bytesToSize(clewdStream.size));
-                    429 == fetchAPI?.status ? console.log(`[35mExceeded limit![0m\n`) : console.log(`${200 == fetchAPI?.status ? '[32m' : '[33m'}${fetchAPI?.status}![0m\n`); //console.log(`${200 == fetchAPI.status ? '[32m' : '[33m'}${fetchAPI.status}![0m\n`);
+                    console.log(`${200 == fetchAPI.status ? '[32m' : '[33m'}${fetchAPI.status}![0m\n`);
                     clewdStream.empty();
                 }
-                if (!apiKey) { //if (prevImpersonated) { try {
-                    await deleteChat(Conversation.uuid); //} catch (err) {}
+                if (!apiKey && (Config.Settings.RenewAlways || prevImpersonated)) { //if (prevImpersonated) { try {
+                    await deleteChat(Conversation.uuid);
 /******************************** */
-                    changeflag++;
-                    if (changeflag < 0 || Config.CookieArray?.length > 0 && (429 == fetchAPI?.status || Config.Cookiecounter > 0 && changeflag >= Config.Cookiecounter)) {
+                    if (!nochange && Config.CookieArray?.length > 0 && (exceeded_limit || Config.Cookiecounter > 0 && changeflag++ >= Config.Cookiecounter - 1)) {
+                        exceeded_limit && console.log(`[35mExceeded limit![0m\n`);
                         changeflag = 0;
-                        CookieChanger.emit('ChangeCookie');
-                    }
+                        CookieChanger();
+                    } //} catch (err) {}
 /******************************** */
                 }
             }));
@@ -828,9 +825,9 @@ const updateParams = res => {
 
       default:
         !['/', '/v1', '/favicon.ico'].includes(req.url) && (console.log('unknown request: ' + req.url)); //console.log('unknown request: ' + req.url);
-        res.writeHead(200, {'Content-Type': 'text/html'});
-        res.write(`<!DOCTYPE html>\n<html>\n<head>\n<meta charset="utf-8">\n<script>\nfunction copyToClipboard(text) {\n  var textarea = document.createElement("textarea");\n  textarea.textContent = text;\n  textarea.style.position = "fixed";\n  document.body.appendChild(textarea);\n  textarea.select();\n  try {\n    return document.execCommand("copy");\n  } catch (ex) {\n    console.warn("Copy to clipboard failed.", ex);\n    return false;\n  } finally {\n    document.body.removeChild(textarea);\n  }\n}\nfunction copyLink(event) {\n  event.preventDefault();\n  const url = new URL(window.location.href);\n  const link = url.protocol + '//' + url.host + '/v1';\n  copyToClipboard(link);\n  alert('链接已复制: ' + link);\n}\n</script>\n</head>\n<body>\n${Main}<br/><br/>完全开源、免费且禁止商用<br/><br/>点击复制反向代理: <a href="v1" onclick="copyLink(event)">Copy Link</a><br/>填入OpenAI API反向代理并选择OpenAI分类中的claude模型（酒馆需打开Show "External" models，仅在api模式有模型选择差异）<br/><br/>教程与FAQ: <a href="https://rentry.org/teralomaniac_clewd" target="FAQ">Rentry</a> | <a href="https://discord.com/invite/B7Wr25Z7BZ" target="FAQ">Discord</a><br/><br/><br/>❗警惕任何高风险cookie/伪api(25k cookie)购买服务，以及破坏中文AI开源共享环境倒卖免费资源抹去署名的群组（🈲黑名单：AI新服务、浅睡(鲑鱼)、赛博女友(青麈)🈲）\n</body>\n</html>`);
-        res.end();
+        res.writeHead(200, {'Content-Type': 'text/html'}); //
+        res.write(`<!DOCTYPE html>\n<html>\n<head>\n<meta charset="utf-8">\n<script>\nfunction copyToClipboard(text) {\n  var textarea = document.createElement("textarea");\n  textarea.textContent = text;\n  textarea.style.position = "fixed";\n  document.body.appendChild(textarea);\n  textarea.select();\n  try {\n    return document.execCommand("copy");\n  } catch (ex) {\n    console.warn("Copy to clipboard failed.", ex);\n    return false;\n  } finally {\n    document.body.removeChild(textarea);\n  }\n}\nfunction copyLink(event) {\n  event.preventDefault();\n  const url = new URL(window.location.href);\n  const link = url.protocol + '//' + url.host + '/v1';\n  copyToClipboard(link);\n  alert('链接已复制: ' + link);\n}\n</script>\n</head>\n<body>\n${Main}<br/><br/>完全开源、免费且禁止商用<br/><br/>点击复制反向代理: <a href="v1" onclick="copyLink(event)">Copy Link</a><br/>填入OpenAI API反向代理并选择OpenAI分类中的claude模型（酒馆需打开Show "External" models，仅在api模式有模型选择差异）<br/><br/>教程与FAQ: <a href="https://rentry.org/teralomaniac_clewd" target="FAQ">Rentry</a> | <a href="https://discord.com/invite/B7Wr25Z7BZ" target="FAQ">Discord</a><br/><br/><br/>❗警惕任何高风险cookie/伪api(25k cookie)购买服务，以及破坏中文AI开源共享环境倒卖免费资源抹去署名的群组（🈲黑名单：AI新服务、浅睡(鲑鱼)、赛博女友(青麈/科普晓百生)🈲）\n</body>\n</html>`); //
+        res.end(); //
         //res.json(//    {//    error: {//        message: '404 Not Found',//        type: 404,//        param: null,//        code: 404//    }//}, 404);
     }
 }));
